@@ -671,6 +671,8 @@ jobs:
             echo ""
             echo "/* iOS SDK fixups appended by CI */"
             echo "#undef HAVE_GETATTRLIST"
+          # local Xcode 27: the iOS 27 SDK declares pipe2 (ios 27.0); configure takes it, and iOS 26 has none (a call through 0)
+          echo "#undef HAVE_PIPE2"
             echo "#ifndef D_TAPE"
             echo "#define D_TAPE 1"
             echo "#endif"
@@ -1710,6 +1712,11 @@ jobs:
       # build/dxmt-ios/shader-headers/ is gitignored and nothing generated it,
       # so airconv_context.cpp could not find air_msad.h / air_samplepos.h.
       # Mirrors the metalir + hexdump generators in dxmt/meson.build.
+      # madeira-bcd: Xcode 27's Metal compiler takes a fifth (memory flags) argument for the atomic builtin the tessellation
+      # shader calls; the patch adds it only under that toolchain.
+      - name: Patch DXMT tessellation shader for Xcode 27's Metal
+        run: python3 tools/patch-dxmt-metal27-atomic.py
+
       - name: Generate DXMT shader headers
         shell: bash
         run: |
