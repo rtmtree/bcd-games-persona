@@ -2424,6 +2424,12 @@ jobs:
       - name: Check bcrypt CBC length guard
         run: python3 tests/host/check-bcrypt-cbc-guard.py
 
+      # madeira-bcd: crypt32's iOS unix side hands the bundled root certificates to every pseudo-process; the 64-bit call
+      # emptied the shared list, so the next process's sync removed the roots from the prefix (Persona 3 Reload's Denuvo
+      # activation, "The server is not reachable", build 622). The enumeration is compiled on the host.
+      - name: Check crypt32 root certificate enumeration
+        run: python3 tests/host/check-crypt32-root-enum.py
+
       # ajan10/wine: env.MADEIRA_NLS_EXTRA = 1 makes Wine's c_932 / c_936 / c_949 / c_950 / c_874 / c_1250 ... c_1258 (app/Madeira/nls/extra)
       # visible to a game that asks for them (Sword and Fairy 3 asks for 936); the lookup is cut out of env_ios.c and compiled on the host.
       - name: Check extra code page tables
