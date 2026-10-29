@@ -188,6 +188,17 @@ OVERLAY = {
                         "[0x75d0000000, 0x7800000000) from boot for one 8960 MB reserve, the one "
                         "Red Dead Redemption 2 makes as it starts. Set it only in that game's own file; GTA V keeps "
                         "layout 2 as it is. Read at session start."},
+    "env.MADEIRA_POOL_MARGIN_MB": {"category": "Memory & JIT pool", "title": "Helper memory: keep this much free (MB)",
+                "kind": "int", "default": "1024", "sources": ["build/ntdll-unix/virtual_ios.c"],
+                "note": "Helper memory (mempool-mb) takes no more of the device's RAM once less than this is available "
+                        "(free pages plus file cache iOS can drop, what iOS itself counts before closing apps), or while "
+                        "the system's memory pressure is critical. 0 turns the margin off. Read at session start."},
+    "env.MADEIRA_POOL_MIN_KB": {"category": "Memory & JIT pool", "title": "Helper memory: smallest reservation (KB)",
+                "kind": "int", "default": "", "sources": ["build/ntdll-unix/virtual_ios.c"],
+                "note": "Off unless set. With Whole reservations coverage, a reservation under the swap file's floor "
+                        "(4 MB) but at least this size is taken whole from helper memory, never from the file; when "
+                        "helper memory cannot take it, it stays in BCD's own memory. 64 KB to 4 GB. Not yet tested on a "
+                        "device. Read at session start."},
     "env.MADEIRA_SWAP_RESERVE_MAX_MB": {"category": "Memory & JIT pool", "title": "Swap tier: largest reservation backed (MB)",
                 "kind": "int", "default": "", "sources": ["build/ntdll-unix/virtual_ios.c"],
                 "note": "The largest new reservation the swap tier backs whole: 256 MB in wide (at most 4 GB), 8 GB in "

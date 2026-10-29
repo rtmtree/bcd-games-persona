@@ -1782,6 +1782,15 @@ static void *wine_process_thread(void *arg) {
              * the mapping survives the screen locking. See virtual_ios.c ml1077. */
             {
                 long capMB = (long)madeira_cfg_int("swap-mb", 0);   /* ml1095: bcd.cfg swap-mb = N */
+                long poolMB = (long)madeira_cfg_int("mempool-mb", 0);   /* bcd.cfg mempool-mb = N */
+                /* madeira-bcd: helper memory (mempool-mb) no longer needs swap-mb. The pool
+                 * is the tier's first stage, so without a swap file the tier runs with the
+                 * smallest one (64 MB): the pool backs what it can and, once it is used up
+                 * or guarded, the file takes at most 64 MB before commits stay in memory. */
+                if (capMB < 64 && poolMB >= 512) {
+                    capMB = 64;
+                    fprintf(stderr, "[swap] app: helper memory %ld MB without swap-mb: the tier runs with a 64 MB file\n", poolMB);
+                }
                 if (capMB >= 64) {
                     NSString *swapPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"madeira-swap.bin"];
                     [[NSFileManager defaultManager] removeItemAtPath:swapPath error:nil];
@@ -1805,7 +1814,6 @@ static void *wine_process_thread(void *arg) {
                         LOG("ml1077 swap tier armed: %{public}s, %ld MB", swapPath.UTF8String, capMB);
                         fprintf(stderr, "[swap] ml1077 app: backing file %s, cap %ld MB\n", swapPath.UTF8String, capMB);
                         /* ml1150: memory pool, the tier's first stage (MemoryPool.m). */
-                        long poolMB = (long)madeira_cfg_int("mempool-mb", 0);   /* bcd.cfg mempool-mb = N */
                         if (poolMB >= 512) {
                             extern long MadeiraMemoryPoolStart(long megabytes);
                             long got = MadeiraMemoryPoolStart(poolMB);

@@ -2694,6 +2694,11 @@ jobs:
       - name: Check the swap-mb cap
         run: python3 tests/host/check-swap-cap.py
 
+      # madeira-bcd: helper memory (mempool-mb, the ml1150 pool) maps ranges larger than one region, is asked before broad's disk
+      # cap, keeps decommits inside its reservations in place, and no longer needs swap-mb.
+      - name: Check helper memory
+        run: python3 tests/host/check-helper-memory.py
+
       # madeira-bcd: the ARM64EC JIT no longer maintains the call-ret shadow stack nothing reads on iOS
       # (MADEIRA_FEX_CALLRET_ELIDE=0 keeps it).
       - name: Check fex-callret-elide
