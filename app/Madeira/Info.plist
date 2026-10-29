@@ -54,10 +54,6 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
-	<!-- BCD (2026-10-22): content servers Valve's directory marks https_support "unavailable" (no TLS listener), listed
-	     from vancez's region (bcd-games pull request #11). Only these hosts may be fetched over plain HTTP, and only
-	     by the Steam downloader's fallback, when the directory gives no usable HTTPS server on Valve's domains; their
-	     chunks are always checked against the manifest's SHA-1. Every other request keeps App Transport Security. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSExceptionDomains</key>
@@ -90,13 +86,12 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>BCD uses the local network to pair with this device for JIT, without a computer.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>BCD saves the screenshots you take in a game to your photo library. It never reads your photos.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>
 	<true/>
-	<!-- BCD (2026-10-25): the in-game menu's screenshot is also saved to Photos when the player allows it (add-only access: BCD never reads the library). -->
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>BCD saves the screenshots you take in a game to your photo library. It never reads your photos.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIRequiredDeviceCapabilities</key>
