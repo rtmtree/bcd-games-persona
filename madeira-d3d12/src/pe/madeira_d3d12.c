@@ -271,6 +271,9 @@ static int g_occlusion_visible = -1;   /* ml1103: bcd.cfg occlusion-visible = 1 
  * texture the pixel stage samples) and their resolved argument tables logged
  * range by range. Answers "bad source or bad composite" for one draw. */
 static char g_capture_ps[512]; static int g_capture_ps_loaded, g_capture_ps_shots, g_dump_tables;   /* ml1152: a comma list */
+/* madeira-bcd: capture-ps-skip = N lets the frame's first N matching draws pass uncaptured, to reach a
+ * late draw of a shader many draws share (P3R's UI draws all use PS_Main). */
+static int g_capture_ps_skip, g_capture_ps_seen;
 /* ml1141: TARGETED DISPATCH CAPTURE, the compute twin of the above. bcd.cfg
  * capture-cs = <compute entry name> (capture-cs-indirect = 1 keeps only indirect
  * dispatches, capture-cs-max = N, default 12): during a CAP frame the first N
@@ -3209,6 +3212,9 @@ static void mad_capture_rs_tables(struct mad_exec *e, obj_handle_t benc, unsigne
                                   br ? (br->name ? br->name : "buffer") : "NOTHING LIVE", br ? (unsigned long long)br->size : 0ull,
                                   (unsigned long long)boff, (unsigned long long)de->metadata, (de->metadata >> 63) ? " (typed)" : "");
                         if (br && br->buffer && rg->range_type == MADEIRA_IR_RANGE_CBV) mad_capture_buffer(e, benc, br, boff, 1024, "cb", i * 1000 + off + k, seq);
+                        else if (br && br->buffer && rg->range_type == MADEIRA_IR_RANGE_SRV && (de->metadata & 0xffffffffull) &&
+                                 (de->metadata & 0xffffffffull) <= 4096)   /* madeira-bcd: a small buffer SRV's bytes (typed: from its first element) */
+                            mad_capture_buffer(e, benc, br, boff, de->metadata & 0xffffffffull, "buf", i * 1000 + off + k, seq);
                     } else if (de->texture_view_id) {
                         d3d12_log("[%s] p%u %s %c%u space%u: typed buffer view %llx, metadata 0x%llx\n", tag, i, rn, rg->range_type == 1 ? 'u' : 't',
                                   reg, rg->register_space, (unsigned long long)de->texture_view_id, (unsigned long long)de->metadata);
@@ -8428,7 +8434,8 @@ static void exec_draw(struct mad_exec *e, const struct mad_cmd *c) {
     if (!exec_begin_render(e)) { MAD_SKIP(e); return; }
     if (g_skip_ps_state && mad_skip_ps_match(e->pso)) { MAD_SKIP(e); return; }   /* madeira-bcd: diagnostic, off unless skip-ps is set */
     g_dump_tables = 0;
-    if (g_capture_on && g_capture_ps[0] && mad_name_in_list(g_capture_ps, e->pso->ps_name) && g_capture_ps_shots < 8) {   /* ml1106; ml1152: any listed ps, 8 shots; madeira-bcd: exact names (a substring match let ps_SetColor eat the shots meant for ps_SetColor_MultiLight) */
+    if (g_capture_on && g_capture_ps[0] && mad_name_in_list(g_capture_ps, e->pso->ps_name) && g_capture_ps_shots < 8 &&
+        g_capture_ps_seen++ >= g_capture_ps_skip) {   /* ml1106; ml1152: any listed ps, 8 shots; madeira-bcd: exact names (a substring match let ps_SetColor eat the shots meant for ps_SetColor_MultiLight); capture-ps-skip passes the frame's first N */
         g_capture_ps_shots++;
         mad_capture_draw_inputs(e, c);
         if (!exec_begin_render(e)) { MAD_SKIP(e); return; }
@@ -21675,6 +21682,7 @@ static void mad_present_run(struct mad_swapchain *s, UINT idx) {
                 g_capture_ps_loaded = 1; mad_cfg_str_pe("capture-ps", g_capture_ps, sizeof g_capture_ps);
                 if (g_capture_ps[0]) d3d12_log("[capture] ml1106 targeted draw capture for ps='%s'\n", g_capture_ps); }
             g_capture_ps_shots = 0;
+            g_capture_ps_seen = 0; g_capture_ps_skip = (int)mad_cfg_int_pe("capture-ps-skip", 0);   /* madeira-bcd: the frame's first N capture-ps draws pass uncaptured */
             {   /* ml1141: re-read every CAP, so the target can change between captures of one run */
                 mad_cfg_str_pe("capture-cs", g_capture_cs, sizeof g_capture_cs);
                 g_capture_cs_ind = mad_cfg_int_pe("capture-cs-indirect", 0) ? 1 : 0;
