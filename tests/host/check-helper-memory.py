@@ -459,8 +459,9 @@ else:
                   'a failed zeroing is logged')
             check(re.search(r'^\[swap\] ml1150 pool: \d+ MB in use \(peak 112\), \d+ takes, \d+ guarded, 1 decommits zeroed in place, 4 MB lost \(free list full, or not zeroed\)', err, re.M)
                   is not None, 'the stats line carries the peak and the in-place decommits')
-            check(re.search(r"\| 1 reservations under the file's floor \(2 MB\) \| system has \d+ MB available$", err, re.M) is not None,
-                  "the stats line counts the reservations under the file's floor and what the system has available")
+            check(re.search(r"\| 1 reservations under the file's floor \(2 MB\) \| 0 FEX arena reservations \(0 MB\)"
+                            r" \| system has \d+ MB available$", err, re.M) is not None,
+                  "the stats line counts the reservations under the file's floor, the FEX arena's and what the system has available")
             check(re.search(r'^\[swap\] ml1150 pool: guard closed \(\d+ MB available, margin 0 MB, system pressure 2\); \d+ MB in use$', err, re.M)
                   is not None, 'the guard logs why it closed')
             check(re.search(r'^\[swap\] ml1150 pool: guard open again after \d+ refusals \(\d+ MB available\)$', err, re.M) is not None,

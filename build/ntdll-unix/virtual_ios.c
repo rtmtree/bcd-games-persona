@@ -21937,6 +21937,7 @@ static int         ios_swap_wide;
 static int         ios_swap_broad;            /* ml1257 */
 static size_t      ios_swap_min = 8u << 20;
 static size_t      ios_pool_min;              /* madeira-bcd: broad takes reservations from here to the floor from the ml1150 pool only; 0 = off */
+static int         ios_pool_fex;              /* madeira-bcd: MADEIRA_POOL_FEX: 1 the FEX arena's reservations from the ml1150 pool only, 2 the pool then the file */
 static int         ios_swap_pool_only;        /* ios_swap_map: the pool or nothing (a reservation under the file's floor) */
 static size_t      ios_swap_resv_max = 256u << 20;
 static const char *ios_swap_mode = "classic";
@@ -22156,6 +22157,7 @@ static int ios_pool_pressure;                /* the system's: 0 normal, 1 warnin
 static uint64_t ios_pool_margin = 1024ull << 20;
 static unsigned long long ios_pool_bytes, ios_pool_peak, ios_pool_takes, ios_pool_guarded, ios_pool_lost, ios_pool_holes;
 static unsigned long long ios_pool_small_n, ios_pool_small_bytes;   /* reservations under the file's floor, from the pool */
+static unsigned long long ios_pool_fex_n, ios_pool_fex_bytes;       /* FEX arena reservations, from the pool (MADEIRA_POOL_FEX) */
 static unsigned long long ios_pool_closed, ios_pool_closings;        /* refusals since the guard closed; times it closed */
 
 /* Called by the app (MemoryPool.m) before Wine starts, one region at a time. */
@@ -22193,13 +22195,17 @@ static uint64_t ios_pool_system_free( void )
 static void ios_pool_config( void )
 {
     const char *margin = getenv( "MADEIRA_POOL_MARGIN_MB" );
+    const char *fex = getenv( "MADEIRA_POOL_FEX" );   /* FEX arena reservations: 1 = helper memory only, 2 = helper memory, then the file; unset = off */
     if (margin && *margin) ios_pool_margin = strtoull( margin, NULL, 10 ) << 20;
     ios_pool_min = ios_swap_env_size( "MADEIRA_POOL_MIN_KB", 0, 10, 64u << 10, (size_t)1 << 32 );   /* unset: off */
+    ios_pool_fex = fex && (fex[0] == '1' || fex[0] == '2') ? fex[0] - '0' : 0;
     if (__atomic_load_n( &ios_pool_nreg, __ATOMIC_ACQUIRE ))
         dprintf( 2, "[swap] ml1150 pool: %u regions; takes stop below %llu MB available (now %llu MB) or at critical system "
-                    "pressure; reservations under the file's floor: %s%zu KB (MADEIRA_POOL_MARGIN_MB, MADEIRA_POOL_MIN_KB)\n",
+                    "pressure; reservations under the file's floor: %s%zu KB; FEX arena: %s (MADEIRA_POOL_MARGIN_MB, "
+                    "MADEIRA_POOL_MIN_KB, MADEIRA_POOL_FEX)\n",
                  ios_pool_nreg, (unsigned long long)(ios_pool_margin >> 20),
-                 (unsigned long long)(ios_pool_system_free() >> 20), ios_pool_min ? "from " : "off, ", ios_pool_min >> 10 );
+                 (unsigned long long)(ios_pool_system_free() >> 20), ios_pool_min ? "from " : "off, ", ios_pool_min >> 10,
+                 ios_pool_fex == 2 ? "helper memory, then the file" : ios_pool_fex ? "helper memory only" : "off" );
 }
 /* A pool offset for len bytes, or -1 (the guard, or no room). The range may
  * cross from one region into the next (madeira-bcd). */
@@ -22325,6 +22331,7 @@ static int ios_pool_zero( uint64_t off, size_t len ) { (void)off; (void)len; ret
 static void ios_pool_give( uint64_t off, size_t len ) { (void)off; (void)len; }
 static unsigned long long ios_pool_bytes, ios_pool_peak, ios_pool_takes, ios_pool_guarded, ios_pool_lost, ios_pool_holes;
 static unsigned long long ios_pool_small_n, ios_pool_small_bytes;
+static unsigned long long ios_pool_fex_n, ios_pool_fex_bytes;
 #endif
 static void ios_swap_give( uint64_t off, size_t len )
 {
@@ -22756,9 +22763,11 @@ void ios_swap_stats_line( void )
              ios_swap_live >> 20, ios_swap_live_peak >> 20, ios_swap_cap_anon >> 20 );
     if (ios_pool_takes || ios_pool_guarded)
         dprintf( 2, "[swap] ml1150 pool: %llu MB in use (peak %llu), %llu takes, %llu guarded, %llu decommits zeroed in place, %llu MB lost (free list full, or not zeroed)"
-                    " | %llu reservations under the file's floor (%llu MB) | system has %llu MB available\n",
+                    " | %llu reservations under the file's floor (%llu MB) | %llu FEX arena reservations (%llu MB)"
+                    " | system has %llu MB available\n",
                  ios_pool_bytes >> 20, ios_pool_peak >> 20, ios_pool_takes, ios_pool_guarded, ios_pool_holes, ios_pool_lost >> 20,
-                 ios_pool_small_n, ios_pool_small_bytes >> 20, (unsigned long long)(ios_pool_system_free() >> 20) );
+                 ios_pool_small_n, ios_pool_small_bytes >> 20, ios_pool_fex_n, ios_pool_fex_bytes >> 20,
+                 (unsigned long long)(ios_pool_system_free() >> 20) );
     if (ios_swap_img_backs || ios_swap_img_refused)   /* madeira-bcd swap-images */
         dprintf( 2, "[swap] swap-images: %llu MB of image sections in the file (peak %llu), %llu sections moved, %llu refused\n",
                  ios_swap_img_bytes >> 20, ios_swap_img_peak >> 20, ios_swap_img_backs, ios_swap_img_refused );
@@ -22968,7 +22977,7 @@ static void ios_swap_reserve( void *base, size_t size, unsigned int vprot, struc
 static int ios_swap_whole_resv( struct file_view *view, unsigned int vprot )
 {
     uintptr_t b;
-    int why, pool_only = 0;
+    int why, pool_only = 0, fex_arena;
     if (ios_swap_fd < 0 || !ios_swap_broad) return 0;
     b = (uintptr_t)view->base;
     if (vprot & (VPROT_EXEC | VPROT_WRITECOPY | VPROT_GUARD | VPROT_WRITEWATCH | VPROT_PLACEHOLDER))
@@ -22976,7 +22985,18 @@ static int ios_swap_whole_resv( struct file_view *view, unsigned int vprot )
     if (!is_view_valloc( view ) || (view->protect & (SEC_FILE | SEC_IMAGE | SEC_RESERVE | VPROT_SYSTEM | VPROT_WRITEWATCH |
                                                      VPROT_PLACEHOLDER | VPROT_FREE_PLACEHOLDER | VPROT_ARM64EC)))
     { ios_swap_skip_bytes[IOS_SWK_VIEW] += view->size; return 0; }
-    if (view->size < ios_swap_min)
+    /* madeira-bcd MADEIRA_POOL_FEX: FEX's own heap spans (rpmalloc, 16 MB each, one set per thread) are
+     * most of the FEX arena and were 1.3-1.7 GB of a P3R footprint on iOS 27 (FEX_MAXINST=1). They are
+     * hot, so never the file at 1: helper memory or anonymous memory as before. 2 lets the file take what
+     * helper memory cannot once it is full; a written-back file page is not in BCD's footprint. */
+    fex_arena = ios_pool_fex && ios_fex_arena_base_unix && b >= ios_fex_arena_base_unix &&
+                b + view->size <= ios_fex_arena_end_unix && __atomic_load_n( &ios_pool_nreg, __ATOMIC_ACQUIRE );
+    if (fex_arena)
+    {
+        if (view->size < (ios_pool_min ? ios_pool_min : ios_swap_min)) { ios_swap_skip_bytes[IOS_SWK_SMALL] += view->size; return 0; }
+        pool_only = ios_pool_fex == 1;
+    }
+    else if (view->size < ios_swap_min)
     {
         /* madeira-bcd: under the file's floor, from ios_pool_min, helper memory only (see ml1150) */
         if (!ios_pool_min || view->size < ios_pool_min || !__atomic_load_n( &ios_pool_nreg, __ATOMIC_ACQUIRE ))
@@ -22984,12 +23004,13 @@ static int ios_swap_whole_resv( struct file_view *view, unsigned int vprot )
         pool_only = 1;
     }
     if (view->size > ios_swap_resv_max) { ios_swap_skip_bytes[IOS_SWK_BIG] += view->size; return 0; }
-    if (ios_swap_is_fexjit( b, view->size ) || b + view->size > 0x7c00000000ULL)
+    if (!fex_arena && (ios_swap_is_fexjit( b, view->size ) || b + view->size > 0x7c00000000ULL))
     { ios_swap_skip_bytes[IOS_SWK_FEXJIT] += view->size; return 0; }
     if (ios_swap_n && ios_swap_overlaps( view->base, view->size )) { ios_swap_skip_bytes[IOS_SWK_OVERLAP] += view->size; return 0; }
     if (ios_swap_churny( view->size ))   /* ml1258 */
     { ios_swap_churn_skips++; ios_swap_skip_bytes[IOS_SWK_CHURN] += view->size; return 0; }
-    ios_swap_map_tag = pool_only ? " (whole reservation, helper memory only)" : " (whole reservation, ml1257)";
+    ios_swap_map_tag = fex_arena ? (pool_only ? " (FEX arena, helper memory only)" : " (FEX arena)")
+                     : pool_only ? " (whole reservation, helper memory only)" : " (whole reservation, ml1257)";
     ios_swap_pool_only = pool_only;
     why = ios_swap_map( view->base, view->size, get_unix_prot( vprot ), (vprot & VPROT_COMMITTED) != 0 );
     ios_swap_pool_only = 0;
@@ -23000,7 +23021,8 @@ static int ios_swap_whole_resv( struct file_view *view, unsigned int vprot )
         ios_swap_ext[ios_swap_n - 1].resv = 1;
         ios_swap_resv_n++;
         ios_swap_resv_bytes += view->size;
-        if (pool_only) { ios_pool_small_n++; ios_pool_small_bytes += view->size; }
+        if (fex_arena) { ios_pool_fex_n++; ios_pool_fex_bytes += view->size; }
+        else if (pool_only) { ios_pool_small_n++; ios_pool_small_bytes += view->size; }
     }
     if (vprot & VPROT_COMMITTED) ios_swap_note( why, view->size );
     else ios_swap_tick( 0 );
