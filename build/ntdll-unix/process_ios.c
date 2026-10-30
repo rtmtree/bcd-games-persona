@@ -3680,6 +3680,11 @@ static int ios_dump_guest_instruction( HANDLE handle, LONG exit_code, uint64_t r
     {
         dprintf( 2, "[guest-insn] #%u code=%08x rip=%#llx: no registered x64 text window\n",
                  report + 1, (unsigned)exit_code, (unsigned long long)rip );
+        /* madeira-bcd: the bytes at the fault as memory holds them NOW. A main image run
+         * from its PE VA (MADEIRA_X64_IMAGE_NOCOPY) has no window, and a self-decrypting
+         * protection leaves two readings: plaintext here means FEX ran a translation made
+         * before the decrypting store; ciphertext means that store never happened. */
+        if (rip >= 16) ios_guest_instruction_read( "CURRENT", rip - 16, 48, pe_bytes );
         return 0;
     }
     dprintf( 2, "[guest-insn] #%u code=%08x rip=%#llx image=%#llx rva=%#llx "
