@@ -1012,6 +1012,7 @@ final class HardwareInput: ObservableObject {
         log("enabled=\(Self.enabled ? 1 : 0) focus=\(Self.focusEnabled ? 1 : 0) "
             + "cursor=\(Self.directCursorEnabled ? 1 : 0) absolute=\(Self.absoluteEnabled ? 1 : 0) "
             + "lock=\(Self.lockEnabled ? 1 : 0) autolock=\(Self.autoLockEnabled ? 1 : 0)")
+        startAutoKeys()
         guard Self.enabled else { return }
         appActive = UIApplication.shared.applicationState == .active
         hoverSeen = UIDevice.current.userInterfaceIdiom != .phone
@@ -1488,6 +1489,64 @@ final class HardwareInput: ObservableObject {
         syncKeys()
         updateKeyRepeat(vk, pressed)
         startTicker()
+    }
+
+    // MARK: - autokeys (madeira-bcd, 2026-10-30; bcd.cfg autokeys)
+
+    /// bcd.cfg `autokeys = 360:C:1500 10:RET:1200 loop 15:RET:800` drives a test run with nobody at the
+    /// device. Each step waits its seconds after the previous step's release (the first one after the app
+    /// starts), then holds its key (a letter, RET, ESC, SPACE, an arrow, or a hex VK) for its milliseconds.
+    /// The steps after `loop` repeat until the app ends. Off unless set.
+    /// `autokeys = remote` (or any script) also watches Documents/bcd-keys.txt: a file copied there holds
+    /// steps in the same form, run once and then deleted, so a test run can be driven from a computer.
+    private static func parseAutoKeys(_ script: String) -> (steps: [(wait: Double, vk: Int32, hold: Double)], loopAt: Int?) {
+        let names: [String: Int32] = ["RET": 0x0D, "ESC": 0x1B, "SPACE": 0x20, "LEFT": 0x25, "UP": 0x26, "RIGHT": 0x27, "DOWN": 0x28]
+        var steps: [(wait: Double, vk: Int32, hold: Double)] = []
+        var loopAt: Int?
+        for token in script.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
+            if token == "loop" { loopAt = steps.count; continue }
+            let f = token.split(separator: ":")
+            guard f.count == 3, let wait = Double(f[0]), let hold = Double(f[2]) else { continue }
+            let name = f[1].uppercased()
+            let vk = names[name] ?? (name.count == 1 ? Int32(name.unicodeScalars.first!.value)
+                                                     : Int32(name.hasPrefix("0X") ? String(name.dropFirst(2)) : name, radix: 16))
+            if let vk { steps.append((wait, vk, hold / 1000)) }
+        }
+        return (steps, loopAt)
+    }
+
+    private func startAutoKeys() {
+        guard let script = MadeiraConfig.get("autokeys"), !script.isEmpty else { return }   // test runs: timed key steps; "remote" also runs Documents/bcd-keys.txt
+        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let file = docs.appendingPathComponent("bcd-keys.txt")
+            Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+                guard let text = try? String(contentsOf: file, encoding: .utf8) else { return }
+                try? FileManager.default.removeItem(at: file)
+                self?.log("autokeys: bcd-keys.txt \(text.trimmingCharacters(in: .whitespacesAndNewlines))")
+                // `CAP:n` asks madeira-d3d12 for n captured frames, as the overlay's capture button does.
+                for token in text.split(whereSeparator: { $0 == " " || $0 == "\n" }) where token.hasPrefix("CAP:") {
+                    if let n = Int32(token.dropFirst(4)), n > 0 { madeira_capture_request(n) }
+                }
+                self?.runAutoKeys(Self.parseAutoKeys(text).steps, loopAt: nil)
+            }
+        }
+        let (steps, loopAt) = Self.parseAutoKeys(script)
+        guard !steps.isEmpty else { return }
+        log("autokeys: \(steps.count) steps, loop from \(loopAt.map(String.init) ?? "none")")
+        runAutoKeys(steps, loopAt: loopAt)
+    }
+
+    private func runAutoKeys(_ steps: [(wait: Double, vk: Int32, hold: Double)], loopAt: Int?) {
+        func run(_ i: Int) {
+            let at = i < steps.count ? i : (loopAt ?? steps.count)
+            guard at < steps.count else { return }
+            let step = steps[at]
+            DispatchQueue.main.asyncAfter(deadline: .now() + step.wait) {
+                winios_post_key(step.vk, 1)
+                DispatchQueue.main.asyncAfter(deadline: .now() + step.hold) { winios_post_key(step.vk, 0); run(at + 1) }
+            }
+        }
+        run(0)
     }
 
     private func syncKeys() {
